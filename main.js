@@ -6,6 +6,8 @@ const NS = "http://www.w3.org/2000/svg";
 let output = [];
 let index = 0;
 
+let guide = [];
+
 const color= {
     background: "lightgray",
     paper: "white",
@@ -23,6 +25,18 @@ function drawPoint(point, color) {
     circle.setAttribute('cy', point[1]);
     circle.setAttribute('r', 5);
     circle.setAttribute('fill', color);
+    return circle;
+}
+
+function drawCircle(point, color, radius) {
+    const circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', point[0]);
+    circle.setAttribute('cy', point[1]);
+    circle.setAttribute('r', radius);
+    circle.setAttribute('fill', "none");
+    circle.setAttribute('stroke', color);
+    
+    circle.classList.add("removable");
     return circle;
 }
 
@@ -82,10 +96,13 @@ function drawLines(lines, color) {
     const circles = svg.querySelectorAll("circle");
     circles.forEach(circle => circle.setAttribute("fill", "blue"));
 
+    const toRemove = svg.querySelectorAll(".removable");
+    toRemove.forEach(circle => circle.remove());
 
     if (lines.length === 0) { return }; //return if no lines found.
 
     lines.forEach(line => {
+        if (line.direction == "continue") return;
         const p1 = line.p1; // Starting point [x, y]
         const direction = line.direction; // Direction vector [dx, dy]
 
@@ -102,16 +119,24 @@ function drawCurrentLine() {
     const circles = svg.querySelectorAll("circle");
     circles.forEach(circle => circle.setAttribute("fill", "blue"));
 
+    const toRemove = svg.querySelectorAll(".removable");
+    toRemove.forEach(circle => circle.remove());
+
     if (output.length === 0) { return }; //return if no lines found.
 
     const line = output[index];
-    const { p1, direction, extraPoints, extraLine, extraDottedLine } = line;
-
-    svg.appendChild(drawLine(p1, direction, color.S));
+    const { p1, direction, extraPoints, extraLine, extraDottedLine, notFound, radius } = line;
+    
+    if (!notFound) {
+        svg.appendChild(drawLine(p1, direction, color.S));
+    }
+    else {
+        svg.appendChild(drawCircle(p1, color.R, radius))
+    }
 
     // Draw the extra solid line if `extraLine` is defined
     if (extraLine) {
-        svg.appendChild(drawLine(extraLine.p1, extraLine.direction, color.B, false));
+        svg.appendChild(drawLine(extraLine.p1, extraLine.direction, color.B));
     }
 
     // Draw the extra dotted line if `extraDottedLine` is defined
@@ -128,7 +153,6 @@ function drawCurrentLine() {
             existingCircle.setAttribute("fill", color);
         } else {
             svg.appendChild(drawPoint(point, color));
-            console.log("drawing point", point, color);
         }
     });
 
@@ -150,7 +174,6 @@ function axiom1() {
             output.push(line);
         }
     }
-    console.log(output);
     return (output);
 }
 
@@ -175,6 +198,16 @@ function axiom2(lines) {
     return output;
 }
 
+//helper to find direction vector
+function directionVector(p1, p2) {
+    return [p2[0] - p1[0], p2[1] - p1[1]];
+}
+
+//helper to find length of direction vector
+function vectorLength(dirVector) {
+    return Math.sqrt(dirVector[0] ** 2 + dirVector[1] ** 2);
+}
+
 function axiom3() {
     output = [];
 
@@ -187,14 +220,14 @@ function axiom3() {
                     const p3 = points[k];
 
                     // Create direction vectors
-                    const dirU = [p2[0] - p1[0], p2[1] - p1[1]]; // Line p1 to p2
-                    const dirV = [p3[0] - p2[0], p3[1] - p2[1]]; // Line p2 to p3
-                    const dirW = [p3[0] - p1[0], p3[1] - p1[1]]; // Line p1 to p3
+                    const dirU = directionVector(p1, p2);
+                    const dirV = directionVector(p2, p3);
+                    const dirW = directionVector(p1, p3);
 
                     // Calculate lengths of the direction vectors
-                    const lengthU = Math.sqrt(dirU[0] ** 2 + dirU[1] ** 2);
-                    const lengthV = Math.sqrt(dirV[0] ** 2 + dirV[1] ** 2);
-                    const lengthW = Math.sqrt(dirW[0] ** 2 + dirW[1] ** 2);
+                    const lengthU = vectorLength(dirU);
+                    const lengthV = vectorLength(dirV)
+                    const lengthW = vectorLength(dirW);
 
                     // Check for zero length to prevent NaN in normalization
                     const unitU = lengthU > 0 ? [dirU[0] / lengthU, dirU[1] / lengthU] : [0, 0];
@@ -276,11 +309,11 @@ function axiom5() {
         for (let j = i + 1; j < points.length; j++) {
             for (let k = 0; k < points.length; k++) {
                 for (let l = 0; l < points.length; l++) {
-                    if (k !== i && k !== j && l !== i && l !== j) { // Ensure k and l are not the same as i or j
+                    if (k !== i && k !== j && l !== i && l !== j && k!== l) { // Ensure k and l are not the same as i or j
                         const p1 = points[i]; // Point 1 for line l1
                         const p2 = points[j]; // Point 2 for line l1
                         const p3 = points[k]; // Point 3 to define the circle (fold should intersect this point.)
-                        const p4 = points[l]; // Point 4 to define the line segments
+                        const p4 = points[l]; // Point 4 folded onto line
 
                         // Calculate the radius from p3 to p4
                         const radius = Math.sqrt((p4[0] - p3[0]) ** 2 + (p4[1] - p3[1]) ** 2);
@@ -341,12 +374,21 @@ function axiom5() {
                                 });
                             }
                         }
+                        else {
+                            output.push({
+                                p1: p3,
+                                direction: "continue",
+                                radius: vectorLength(directionVector(p3, p4)),
+                                extraPoints: [p1, p2, p3, p4],
+                                extraLine: { p1: p1, direction: [p2[0] - p1[0], p2[1] - p1[1]] },
+                                notFound: true
+                            })
+                        }
                     }
                 }
             }
         }
     }
-    console.log("am i here?")
     console.log(output)
     return output;
 }
